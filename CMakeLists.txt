@@ -5,8 +5,16 @@ project(iMateC)
 # Set the output directory for the build
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/build)
 
-# Add the main.c file to the project
-add_executable(iMateC src/main.c)
+# Set the language to C
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
+# Get all source files in the 'src' directory
+file(GLOB SOURCES "src/*.c")
+
+# Add executable with all source files
+add_executable(iMateC ${SOURCES})
 
 # Add a custom target to clean the build directory
 add_custom_target(clean_build
