@@ -36,8 +36,7 @@
 extern "C" {
 #endif
 
-#include "GameState.h"
-
+#include "../State/GameState.h"
 
 /**
  * @brief Evaluates a game state and returns an appropriate score.

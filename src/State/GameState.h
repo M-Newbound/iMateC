@@ -39,39 +39,32 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "../Moves/Move.h"
 
 
 typedef enum {
-    WHITE           = 0,
-    BLACK           = 1
+    NULL_COLOR      = -1,
+    WHITE           =  0,
+    BLACK           =  1
 } color_t;
 
 typedef enum {
-    NO_PIECE        = -1,
-    PIECE_PAWN      = 0,
-    PIECE_KNIGHT    = 1,
-    PIECE_BISHOP    = 2,
-    PIECE_ROOK      = 3,
-    PIECE_QUEEN     = 4,
-    PIECE_KING      = 5
+    NULL_PIECE      = -1,
+    PIECE_PAWN      =  0,
+    PIECE_ROOK      =  1,
+    PIECE_KNIGHT    =  2,
+    PIECE_BISHOP    =  3,
+    PIECE_QUEEN     =  4,
+    PIECE_KING      =  5
 } piece_t;
 
 typedef enum {
+    NULL_CASTLE             = -1,
     CASTLE_KINGSIDE_WHITE   = 0,
     CASTLE_QUEENSIDE_WHITE  = 1,
     CASTLE_KINGSIDE_BLACK   = 2,
     CASTLE_QUEENSIDE_BLACK  = 3
 } castle_t;
-
-typedef enum {
-    WHITE_CHECK,
-    BLACK_CHECK,
-    WHITE_CHECKMATE,
-    BLACK_CHECKMATE,
-    STALEMATE,
-    IN_GAME
-} game_status_t;
-
 
 /**
  * @brief Forward declaration of the state type
@@ -122,30 +115,6 @@ void free_state(state_t *state);
 
 
 /**
- * @brief Returns the current status of the game.
- *
- * @details
- * This function checks the current position and returns the game status.
- *
- * @param state Pointer to the game state.
- * @return The current game status.
- */
-game_status_t current_state_status(const state_t *state);
-
-
-/**
- * @brief Returns the color of the current player to move.
- *
- * @details
- * This function returns the color of the player whose turn it is to move in the current state.
- *
- * @param state Pointer to the game state.
- * @return The color of the player to move.
- */
-color_t to_move_color(const state_t *state);
-
-
-/**
  * @brief Copies the game state from one state type to another.
  *
  * @details
@@ -163,21 +132,20 @@ void copy_state(const state_t *fromState, state_t *toState);
 
 
 /**
- * @brief Returns the piece on a given square.
+ * @brief Returns the color of the current player to move.
  *
  * @details
- * This function checks the game state and returns the piece on the given square. 
- * If the square is empty, it returns NO_PIECE.
- * 
- * @note The square is represented as a 64-bit integer with the bit corresponding to the square set to 1.
- * @warning The square must be a valid square mask (i.e. a single bit set to 1). Else the behavior is undefined.
+ * This function returns the color of the player whose turn it is to move in the current state.
  *
  * @param state Pointer to the game state.
- * @param square The square to check.
- * @return The piece on the given square.
+ * @return The color of the player to move.
  */
-piece_t piece_on_square(const state_t* state, uint64_t square);
+color_t get_state_to_move_color(const state_t *state);
 
+
+piece_t get_piece_on_square(const state_t *state, uint64_t square);
+
+color_t get_color_of_piece_on_square(const state_t *state, uint64_t square);
 
 /**
  * @brief Retrieves the castling right for a specific type of castling.
@@ -227,22 +195,56 @@ uint64_t states_color_bitboard(const state_t *state, color_t color);
  * 
  * @return          The bitboard for the specified piece and color.
  */
-uint64_t states_piece_bitboard(const state_t *state, piece_t piece, color_t color);
-
+uint64_t get_state_peice_bitboard(const state_t *state, colored_peice_t colored_peice);
 
 /**
- * @brief Sets the bitboard for a specific type of piece of a specific color.
- *
+ * Loads a FEN (Forsyth-Edwards Notation) string into a game state.
+ * 
+ * @param state The game state to load the FEN string into.
+ * @param fen The FEN string to load.
+ * 
  * @details
- * This function is used to update the game state when a piece is moved or removed from the game.
- *
- * @param state         Pointer to the game state.
- * @param piece         The type of piece to set the bitboard for.
- * @param color         The color of the pieces to set the bitboard for.
- * @param bitboard      The new bitboard for the specified piece and color.
+ * The FEN string represents a specific game position. The function updates the game state
+ * to reflect the game position described by the FEN string.
  */
-void set_states_piece_bitboard(state_t *state, piece_t piece, color_t color, uint64_t bitboard);
+void load_fen_string(state_t *state, const char *fen);
 
+/**
+ * Applies a move to a game state.
+ * 
+ * @param state The game state to apply the move to.
+ * @param move The move to apply.
+ * 
+ * @details
+ * The function updates the game state to reflect the position after the move is played.
+ */
+void play_move(state_t *state, const move_t *move);
+
+/**
+ * Checks if a player is in check.
+ * 
+ * @param state The current game state.
+ * @param color The color of the player to check.
+ * 
+ * @return true if the player is in check, false otherwise.
+ * 
+ * @details
+ * The function checks if the king of the specified color is under attack in the current game state.
+ */
+bool is_check(state_t *state, color_t color);
+
+/**
+ * Checks if a player is in checkmate.
+ * 
+ * @param state The current game state.
+ * @param color The color of the player to check.
+ * 
+ * @return true if the player is in checkmate, false otherwise.
+ * 
+ * @details
+ * The function checks if the player of the specified color is in check and has no legal moves in the current game state.
+ */
+bool is_checkmate(state_t *state, color_t color);
 
 #ifdef __cplusplus
 }

@@ -1,3 +1,5 @@
+# iMate -- Copyright (C) 2024 Martin Newbound */                                                    
+
 cmake_minimum_required(VERSION 3.10)
 
 project(iMateC)
@@ -10,8 +12,8 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# Get all source files in the 'src' directory
-file(GLOB SOURCES "src/*.c")
+# Get all source files in the 'src' directory and its subdirectories
+file(GLOB_RECURSE SOURCES "src/*.c")
 
 # Add executable with all source files
 add_executable(iMateC ${SOURCES})
