@@ -3,12 +3,6 @@
 #include "MoveGeneration.h"
 #include <stdlib.h>
 
-/*
-+=============================================================================+
-|             Pawn Move Generation                                            |
-+=============================================================================+
-*/
-
 void gen_pawn_moves_on_square(const state_t *state, move_collection_t *collection, uint64_t square_key);
 
 void gen_rook_moves_on_square(const state_t *state, move_collection_t *collection, uint64_t square_key);
