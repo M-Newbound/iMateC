@@ -2,170 +2,116 @@
 
 #include "../MoveGeneration.h"
 
+// promotion rows
+#define WHITE_PROMOTION_MASK 0xFF00000000000000ULL
+#define BLACK_PROMOTION_MASK 0x00000000000000FFULL
 
-// Masks for identifying promotion rows for white and black pawns
-#define WHITE_PROMOTION_MASK 0xFF00000000000000
-#define BLACK_PROMOTION_MASK 0x00000000000000FF
+// starting rows
+#define WHITE_STARTING_ROW_MASK 0x000000000000FF00ULL
+#define BLACK_STARTING_ROW_MASK 0x00FF000000000000ULL
 
-// Masks for identifying starting rows for white and black pawns
-#define WHITE_STARTING_ROW_MASK 0x000000000000FF00
-#define BLACK_STARTING_ROW_MASK 0x00FF000000000000
+// file boundary masks -- guard against wrapping on capture shifts
+#define LHS_RANK_MASK 0x0101010101010101ULL  // a-file: guards CAPTURE_LEFT
+#define RHS_RANK_MASK 0x8080808080808080ULL  // h-file: guards CAPTURE_RIGHT
 
-// Macros for identifying left and right side of the board depending on the color
-#define LHS_RANK_MASK(COLOR) ((COLOR == WHITE) ? 0x00000000000000FF : 0xFF00000000000000)
-#define RHS_RANK_MASK(COLOR) ((COLOR == WHITE) ? 0x000000000000FF00 : 0x00FF000000000000)
+// directional shifts
+#define MOVE_FORWARD(BB, COLOR)   ((COLOR) == WHITE ? (BB) << 8 : (BB) >> 8)
+#define CAPTURE_LEFT(BB, COLOR)   ((COLOR) == WHITE ? (BB) << 7 : (BB) >> 9)
+#define CAPTURE_RIGHT(BB, COLOR)  ((COLOR) == WHITE ? (BB) << 9 : (BB) >> 7)
 
-// Macros for moving a pawn forward and capturing to the left or right depending on the color
-#define MOVE_FORWARD(BITBOARD, COLOR) ((COLOR == WHITE) ? BITBOARD << 8 : BITBOARD >> 8)
-#define CAPTURE_LEFT(BITBOARD, COLOR) ((COLOR == WHITE) ? BITBOARD << 7 : BITBOARD >> 9)
-#define CAPTURE_RIGHT(BITBOARD, COLOR) ((COLOR == WHITE) ? BITBOARD << 9 : BITBOARD >> 7)
+#define IS_ON_STARTING_ROW(BB, COLOR) \
+    ((COLOR) == WHITE ? (BB) & WHITE_STARTING_ROW_MASK : (BB) & BLACK_STARTING_ROW_MASK)
+#define IS_ON_PROMOTION_ROW(BB, COLOR) \
+    ((COLOR) == WHITE ? (BB) & WHITE_PROMOTION_MASK : (BB) & BLACK_PROMOTION_MASK)
 
-// Macros for moving a pawn to the left or right on the same rank depending on the color
-#define LEFT_ON_RANK(BITBOARD, COLOR) ((COLOR == WHITE) ? BITBOARD << 1 : BITBOARD >> 1)
-#define RIGHT_ON_RANK(BITBOARD, COLOR) ((COLOR == WHITE) ? BITBOARD >> 1 : BITBOARD << 1)
-
-// Macros for checking if a pawn is on its starting or promotion row depending on the color
-#define IS_ON_STARTING_ROW(BITBOARD, COLOR) ((COLOR == WHITE) ? (BITBOARD & WHITE_STARTING_ROW_MASK) : (BITBOARD & BLACK_STARTING_ROW_MASK))
-#define IS_ON_PROMOTION_ROW(BITBOARD, COLOR) ((COLOR == WHITE) ? (BITBOARD & WHITE_PROMOTION_MASK) : (BITBOARD & BLACK_PROMOTION_MASK))
-
-/**
- * Creates a flags_t struct with the given parameters.
- * @param double_pawn_push A boolean indicating if the move is a double pawn push.
- * @param promotion_piece The piece that the pawn is promoted to.
- * @return A flags_t struct with the given parameters.
- */
-flags_t create_pawn_flags(bool double_pawn_push, piece_t promotion_piece) {
-    flags_t flags = {
-        .castle = NULL_CASTLE,
-        .double_pawn_push = double_pawn_push,
-        .promotion_piece = promotion_piece,
-        .king_moved = false,
-        .kingside_rook_moved = false,
+static flags_t make_pawn_flags(piece_t promo, uint64_t ep_sq) {
+    flags_t f = {
+        .castle               = NULL_CASTLE,
+        .promotion_piece      = promo,
+        .en_passant_square    = ep_sq,
+        .king_moved           = false,
+        .kingside_rook_moved  = false,
         .queenside_rook_moved = false
     };
-    return flags;
+    return f;
 }
 
-/**
- * Handles the case where a pawn reaches the promotion row.
- * @param collection The collection of moves.
- * @param square_key The key of the square where the pawn is located.
- * @param to_square The square where the pawn is moving to.
- * @param color_to_move The color of the pawn.
- * @return A boolean indicating if the pawn reached the promotion row.
- */
-bool handle_promotion_case(move_collection_t *collection, uint64_t square_key, uint64_t to_square, color_t color_to_move) {
-    if(!IS_ON_PROMOTION_ROW(to_square, color_to_move)) return false;
+static bool handle_promotion_case(move_collection_t *collection, uint64_t from_sq,
+                                   uint64_t to_sq, color_t color) {
+    if (!IS_ON_PROMOTION_ROW(to_sq, color)) return false;
 
-    for (piece_t piece = PIECE_ROOK; piece <= PIECE_QUEEN; ++piece) {
-        flags_t flags = create_pawn_flags(false, piece);
-        move_t const *move = new_move(square_key, to_square, flags);
-        push_move_to_collection(move, collection);
+    for (piece_t p = PIECE_ROOK; p <= PIECE_QUEEN; p++) {
+        flags_t f = make_pawn_flags(p, 0);
+        push_move_to_collection(new_move(from_sq, to_sq, f), collection);
     }
-
     return true;
 }
 
-/**
- * Handles the case where a pawn moves forward by one square.
- * @param collection The collection of moves.
- * @param square_key The key of the square where the pawn is located.
- * @param color_to_move The color of the pawn.
- * @param opponent_bitboard The bitboard of the opponent.
- */
-void handle_single_move_forward(move_collection_t *collection, uint64_t square_key, color_t color_to_move, uint64_t opponent_bitboard) {
-    uint64_t forward_one = MOVE_FORWARD(square_key, color_to_move);
-    forward_one &= ~opponent_bitboard;  // make sure it is not blocked
-
-    if (forward_one == 0) return;
-    if (handle_promotion_case(collection, square_key, forward_one, color_to_move)) return;
-
-    flags_t flags = create_pawn_flags(false, NULL_PIECE);
-    move_t const *move = new_move(square_key, forward_one, flags);
-    push_move_to_collection(move, collection);
+static void handle_single_move_forward(move_collection_t *collection, uint64_t sq_bb,
+                                        color_t color, uint64_t all_pieces) {
+    uint64_t fwd = MOVE_FORWARD(sq_bb, color) & ~all_pieces;
+    if (!fwd) return;
+    if (handle_promotion_case(collection, sq_bb, fwd, color)) return;
+    flags_t f = make_pawn_flags(NULL_PIECE, 0);
+    push_move_to_collection(new_move(sq_bb, fwd, f), collection);
 }
 
-/**
- * Handles the case where a pawn moves forward by two squares.
- * @param collection The collection of moves.
- * @param square_key The key of the square where the pawn is located.
- * @param color_to_move The color of the pawn.
- * @param opponent_bitboard The bitboard of the opponent.
- */
-void handle_double_move_forward(move_collection_t *collection, uint64_t square_key, color_t color_to_move, uint64_t opponent_bitboard) {
-    if (!IS_ON_STARTING_ROW(square_key, color_to_move)) return;
-    
-    uint64_t forward_one = MOVE_FORWARD(square_key, color_to_move);
-    forward_one &= ~opponent_bitboard;  // make sure it is not blocked
+static void handle_double_move_forward(move_collection_t *collection, uint64_t sq_bb,
+                                        color_t color, uint64_t all_pieces) {
+    if (!IS_ON_STARTING_ROW(sq_bb, color)) return;
 
-    uint64_t forward_two = MOVE_FORWARD(forward_one, color_to_move);
-    forward_two &= ~opponent_bitboard;  // make sure it is not blocked
+    uint64_t fwd1 = MOVE_FORWARD(sq_bb, color) & ~all_pieces;
+    if (!fwd1) return;
+    uint64_t fwd2 = MOVE_FORWARD(fwd1, color) & ~all_pieces;
+    if (!fwd2) return;
 
-    if (forward_two == 0) return;
-
-    flags_t flags = create_pawn_flags(true, NULL_PIECE);
-    move_t const *move = new_move(square_key, forward_two, flags);
-    push_move_to_collection(move, collection);
+    // en passant target is the square the pawn passed through
+    flags_t f = make_pawn_flags(NULL_PIECE, fwd1);
+    push_move_to_collection(new_move(sq_bb, fwd2, f), collection);
 }
 
-/**
- * Handles the case where a pawn captures an opponent's piece.
- * @param collection The collection of moves.
- * @param square_key The key of the square where the pawn is located.
- * @param color_to_move The color of the pawn.
- * @param opponent_bitboard The bitboard of the opponent.
- */
-void handle_capturing(move_collection_t *collection, uint64_t square_key, color_t color_to_move, uint64_t opponent_bitboard) {
-    flags_t flags = create_pawn_flags(false, NULL_PIECE);
+static void handle_capturing(move_collection_t *collection, uint64_t sq_bb,
+                               color_t color, uint64_t opp_bb) {
+    uint64_t captures[2] = {CAPTURE_LEFT(sq_bb, color), CAPTURE_RIGHT(sq_bb, color)};
+    uint64_t edges[2] = {LHS_RANK_MASK, RHS_RANK_MASK};
 
-    uint64_t capture_moves[] = {CAPTURE_LEFT(square_key, color_to_move), CAPTURE_RIGHT(square_key, color_to_move)};
-    uint64_t rank_masks[] = {LHS_RANK_MASK(color_to_move), RHS_RANK_MASK(color_to_move)};
+    for (int i = 0; i < 2; i++) {
+        // skip if pawn is on the edge in this direction (would wrap)
+        if (sq_bb & edges[i]) continue;
+        if (!(captures[i] & opp_bb)) continue;
 
-    for (int i = 0; i < 2; ++i) {
-        if ((square_key & rank_masks[i]) == 0 && (capture_moves[i] & opponent_bitboard)) {
-            move_t const *move = new_move(square_key, capture_moves[i], flags);
-            push_move_to_collection(move, collection);
+        if (!handle_promotion_case(collection, sq_bb, captures[i], color)) {
+            flags_t f = make_pawn_flags(NULL_PIECE, 0);
+            push_move_to_collection(new_move(sq_bb, captures[i], f), collection);
         }
     }
 }
 
-/**
- * Handles the case where a pawn captures an opponent's pawn en passant.
- * @param state The current state of the game.
- * @param collection The collection of moves.
- * @param square_key The key of the square where the pawn is located.
- * @param color_to_move The color of the pawn.
- */
-void handle_en_passant(const state_t *state, move_collection_t *collection, uint64_t square_key, color_t color_to_move) {
+static void handle_en_passant(const state_t *state, move_collection_t *collection,
+                               uint64_t sq_bb, color_t color) {
     if (!is_en_passant_target_active(state)) return;
-    uint64_t en_passant_target = get_en_passant_target(state);
 
-    flags_t flags = create_pawn_flags(false, NULL_PIECE);
+    uint64_t ep_target = get_en_passant_target(state);
+    uint64_t captures[2] = {CAPTURE_LEFT(sq_bb, color), CAPTURE_RIGHT(sq_bb, color)};
+    uint64_t edges[2] = {LHS_RANK_MASK, RHS_RANK_MASK};
 
-    uint64_t capture_moves[] = {CAPTURE_LEFT(square_key, color_to_move), CAPTURE_RIGHT(square_key, color_to_move)};
-    uint64_t rank_masks[] = {LHS_RANK_MASK(color_to_move), RHS_RANK_MASK(color_to_move)};
-    uint64_t rank_moves[] = {LEFT_ON_RANK(square_key, color_to_move), RIGHT_ON_RANK(square_key, color_to_move)};
-
-    for (int i = 0; i < 2; ++i) {
-        if ((square_key & rank_masks[i]) == 0 && en_passant_target == rank_moves[i]) {
-            move_t const *move = new_move(square_key, capture_moves[i], flags);
-            push_move_to_collection(move, collection);
-        }
+    for (int i = 0; i < 2; i++) {
+        if (sq_bb & edges[i]) continue;
+        if (captures[i] != ep_target) continue; // capture must land on the ep square
+        flags_t f = make_pawn_flags(NULL_PIECE, 0);
+        push_move_to_collection(new_move(sq_bb, captures[i], f), collection);
     }
 }
 
-/**
- * Generates all possible moves for a pawn on a given square.
- * @param state The current state of the game.
- * @param collection The collection of moves.
- * @param square_key The key of the square where the pawn is located.
- */
-void gen_pawn_moves_on_square(const state_t *state, move_collection_t *collection, uint64_t square_key) {
-    const color_t color_to_move = get_state_to_move_color(state);
-    const uint64_t opponent_bitboard = states_color_bitboard(state, (color_to_move == WHITE) ? BLACK : WHITE);
+void gen_pawn_moves_on_square(const state_t *state, move_collection_t *collection,
+                               uint64_t sq_bb) {
+    const color_t color = side_to_move(state);
+    const color_t opp = (color == WHITE) ? BLACK : WHITE;
+    const uint64_t opp_bb = color_bb(state, opp);
+    const uint64_t all_pieces = color_bb(state, color) | opp_bb;
 
-    handle_double_move_forward(collection, square_key, color_to_move, opponent_bitboard);
-    handle_single_move_forward(collection, square_key, color_to_move, opponent_bitboard);
-    handle_capturing(collection, square_key, color_to_move, opponent_bitboard);
-    handle_en_passant(state, collection, square_key, color_to_move);
+    handle_double_move_forward(collection, sq_bb, color, all_pieces);
+    handle_single_move_forward(collection, sq_bb, color, all_pieces);
+    handle_capturing(collection, sq_bb, color, opp_bb);
+    handle_en_passant(state, collection, sq_bb, color);
 }
