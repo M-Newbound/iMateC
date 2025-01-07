@@ -1,49 +1,51 @@
-/* iMate -- Copyright (C) 2024 Martin Newbound */                                                    
+/* iMate -- Copyright (C) 2024 Martin Newbound */
 
-#define EARLY_GAME_INDEX 0
-#define LATE_GAME_INDEX 1
-
-#define POSSESION_SCORE() (float) (possesion_weights[WHITE] - possesion_weights[BLACK])
-#define POSITIONAL_SCORE(X) (float) (positional_weights[WHITE][X] - positional_weights[BLACK][X])
-#define INTERPOLATE(MIN, MAX, FACTOR) (1 - FACTOR) * MAX + FACTOR * MIN
-
-#include "../Evaluation/Evaluation.h"
-#include "../Evaluation/EvaluationData.h"
-#include "stdlib.h"
-
+#include "Evaluation.h"
+#include "EvaluationData.h"
 #include <float.h>
 
-float evaluate_state(const state_t *curr_state) {
-    // Check game status
-    if (is_checkmate(curr_state, WHITE)) return FLT_MAX;
-    if (is_checkmate(curr_state, BLACK)) return FLT_MIN;
+#define MG 0  // midgame / opening
+#define EG 1  // endgame
 
-    // Initialize weights
-    int positional_weights[2][2] = {{0, 0}, {0, 0}};
-    int possesion_weights[2] = {0, 0};
-    
-    // Calculate weights for each square
-    for (size_t square = 0; square < 64; ++square) {
-        piece_t piece = get_piece_on_square(curr_state, square);
-        color_t color = get_color_of_piece_on_square(curr_state, square);
+float evaluate_state(const state_t *state) {
+    const color_t to_move = side_to_move(state);
+    if (is_checkmate(state, to_move)) return -FLT_MAX;
 
+    int pst[2][2] = {{0, 0}, {0, 0}};
+    int material[2] = {0, 0};
+
+    for (int sq_idx = 0; sq_idx < 64; sq_idx++) {
+        uint64_t sq_bb = 1ULL << sq_idx;
+        piece_t piece = get_piece_on_square(state, sq_bb);
         if (piece == NULL_PIECE) continue;
-        if (piece != PIECE_KING) possesion_weights[color] += PIECE_WEIGHT[piece];
-        positional_weights[color][EARLY_GAME_INDEX] += PIECE_SQUARE_TABLES[piece][EARLY_GAME_INDEX][square];
-        positional_weights[color][LATE_GAME_INDEX] += PIECE_SQUARE_TABLES[piece][LATE_GAME_INDEX][square];
+        color_t color = get_color_of_piece_on_square(state, sq_bb);
+
+        if (piece != PIECE_KING)
+            material[color] += PIECE_WEIGHT[piece];
+
+        // tables are rank-8-first; flip for white so advancing toward rank 8
+        // hits the high end of the table. black's index is already the right way round.
+        int tbl_idx = (color == WHITE)
+            ? (7 - sq_idx / 8) * 8 + (sq_idx % 8)
+            : sq_idx;
+
+        pst[color][MG] += PIECE_SQUARE_TABLES[piece][MG][tbl_idx];
+        pst[color][EG] += PIECE_SQUARE_TABLES[piece][EG][tbl_idx];
     }
 
-    // Calculate scores
-    float possesion_score = POSSESION_SCORE();
-    float early_positional_score = POSITIONAL_SCORE(EARLY_GAME_INDEX);
-    float late_positional_score  = POSITIONAL_SCORE(LATE_GAME_INDEX);
+    // 1.0 = opening, 0.0 = pure endgame
+    int total_material = material[WHITE] + material[BLACK];
+    float phase = (float)total_material / (2.0f * STARTING_PIECE_WEIGHT);
+    if (phase > 1.0f) phase = 1.0f;
+    if (phase < 0.0f) phase = 0.0f;
 
-    // Calculate phase factor
-    float phase_factor = (float) (possesion_weights[WHITE] + possesion_weights[BLACK]) / (2.0f * STARTING_PIECE_WEIGHT);
+    // compute from white's perspective, then flip for whoever is to move
+    float mat_score = (float)(material[WHITE] - material[BLACK]);
+    float pos_early = (float)(pst[WHITE][MG] - pst[BLACK][MG]);
+    float pos_late  = (float)(pst[WHITE][EG] - pst[BLACK][EG]);
 
-    // Interpolate positional score and add possesion score
-    float evaluation = INTERPOLATE(early_positional_score, late_positional_score, phase_factor);
-    evaluation += possesion_score;
+    float pos_score = phase * pos_early + (1.0f - phase) * pos_late;
+    float score = mat_score + pos_score;
 
-    return evaluation;
+    return (to_move == WHITE) ? score : -score;
 }
