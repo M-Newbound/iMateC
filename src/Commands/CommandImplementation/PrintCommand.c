@@ -1,81 +1,68 @@
 /* iMate -- Copyright (C) 2024 Martin Newbound */
 
 #include "../Commands.h"
+#include "../../Moves/MoveCollection.h"
+#include "../../Moves/MoveGeneration.h"
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 
-/**
- * @brief Prints the current state of the game board.
- *
- * This function is responsible for printing the current state of the game board.
- * 
- * @param params The command parameters, including the current game state.
- */
-void print_board(const CommandParams params) {
-    for (size_t i = 0; i < 64; i++) {
-        piece_t piece = get_piece_on_square(params.engine_game_state, 1 << i);
-        color_t color = get_color_of_piece_on_square(params.engine_game_state, 1 << i);
+// white uppercase, black lowercase
+static const char PIECE_CHARS[2][6] = {
+    {'P', 'R', 'N', 'B', 'Q', 'K'},
+    {'p', 'r', 'n', 'b', 'q', 'k'}
+};
 
-        if (i % 8 == 0) printf("+---+---+---+---+---+---+---+---+\n");
-
-        switch (piece) {
-            case PIECE_PAWN:
-                printf(color == WHITE ? "| P " : "| p ");
-                break;
-            case PIECE_KNIGHT:
-                printf(color == WHITE ? "| N " : "| n ");
-                break;
-            case PIECE_BISHOP:
-                printf(color == WHITE ? "| B " : "| b ");
-                break;
-            case PIECE_ROOK:
-                printf(color == WHITE ? "| R " : "| r ");
-                break;
-            case PIECE_QUEEN:
-                printf(color == WHITE ? "| Q " : "| q ");
-                break;
-            case PIECE_KING:
-                printf(color == WHITE ? "| K " : "| k ");
-                break;
-            default:
+static void print_board(const CommandParams params) {
+    // rank 8 at the top, rank 1 at the bottom
+    for (int rank = 7; rank >= 0; rank--) {
+        printf("+---+---+---+---+---+---+---+---+\n");
+        for (int file = 0; file < 8; file++) {
+            uint64_t sq = 1ULL << (rank * 8 + file);
+            piece_t piece = get_piece_on_square(params.engine_game_state, sq);
+            if (piece == NULL_PIECE) {
                 printf("|   ");
-                break;
+            } else {
+                color_t color = get_color_of_piece_on_square(params.engine_game_state, sq);
+                printf("| %c ", PIECE_CHARS[color][piece]);
+            }
         }
-
-        if ((i + 1) % 8 == 0) printf("| %i\n", (int)(8 - (i / 8)));
+        printf("| %d\n", rank + 1);
     }
-
     printf("+---+---+---+---+---+---+---+---+\n");
     printf("  a   b   c   d   e   f   g   h  \n");
 }
 
-/**
- * @brief Prints all possible moves from a square.
- *
- * This function is responsible for printing all possible moves from a square.
- * 
- * @param params The command parameters, including the current game state.
- * @param square The square from which to print all possible moves.
- *
- * @todo Implement the function to print all possible moves from a square.
- */
-void print_moves(const CommandParams params, const char *square) {
+static void print_moves(const CommandParams params, const char *square_str) {
+    // e.g. "e4" -> bitboard square
+    if (!square_str || square_str[0] < 'a' || square_str[0] > 'h'
+                    || square_str[1] < '1' || square_str[1] > '8') {
+        printf("Invalid square.\n");
+        return;
+    }
+    int file = square_str[0] - 'a';
+    int rank = square_str[1] - '1';
+    uint64_t sq = 1ULL << (rank * 8 + file);
 
+    move_collection_t *moves = get_legal_moves_of_state(params.engine_game_state);
+    bool any = false;
+    move_t *move;
+    while ((move = pop_collection_head(moves)) != NULL) {
+        if (get_move_from_square(move) == sq) {
+            int to_idx = __builtin_ctzll(get_move_to_square(move));
+            printf("%c%d\n", 'a' + (to_idx % 8), 1 + (to_idx / 8));
+            any = true;
+        }
+        free_move(move);
+    }
+    free_move_collection(moves);
+
+    if (!any) printf("No legal moves from %s.\n", square_str);
 }
 
-/**
- * @brief Executes the 'print' command.
- *
- * This function is responsible for executing the 'print' command.
- * The command can either print the current state of the game board or print all possible moves from a square.
- * 
- * @param params The command parameters, including the current game state and any additional parameters.
- */
 void print_command(const CommandParams params) {
-    if (params.matches[2] == NULL) {                // The command is "print board"
+    // [2]=board, [3]=moves, [4]=square e.g. "e4"
+    if (params.matches[2] != NULL) {
         print_board(params);
-    } else if (params.matches[3] != NULL) {         // The command is "print moves x"
-        print_moves(params, params.matches[3]);
+    } else if (params.matches[3] != NULL) {
+        print_moves(params, params.matches[4]);
     }
 }

@@ -3,59 +3,48 @@
 #include "../Commands.h"
 #include <stdio.h>
 
-#define CMD_WIDTH 14
-#define DESC_WIDTH 32
+#define CMD_WIDTH  36
+#define DESC_WIDTH 44
 
-#define LENGTH_OF_COMMANDS sizeof(CMD_DESCRIPTIONS) / sizeof(CMD_DESCRIPTIONS[0])
-
-
-/**
- * @brief A list of command descriptions.
- *
- * Each element is a 2-element array where the first element is the command and the second element is the description.
- */
-const char* CMD_DESCRIPTIONS[][2] = {
-    {"help",                                            "Shows this help message"},
-    {"position startpos|<fen> [<move> <move>...]",      "Sets the state of the engine's internal game board"},
-    {"go",                                              "Start searching for the best move"},
-    {"print board",                                     "Print the current board state"},
-    {"print moves <from_square>",                       "Print all possible moves from a square"},
-    {"move <from_square> <to_square>",                  "Make a move on the board"},
-    {"status",                                          "Prints the current status of the game"},
-    {"quit",                                            "Quit the engine"}
+static const char *CMD_DESCRIPTIONS[][2] = {
+    // UCI protocol
+    {"uci",                                    "Identify engine; respond with uciok"},
+    {"isready",                                "Confirm engine is ready (readyok)"},
+    {"ucinewgame",                             "Reset to starting position"},
+    {"stop",                                   "Halt an ongoing search"},
+    // UCI game commands
+    {"position startpos [moves m1 m2 ...]",    "Set starting position, optionally apply moves"},
+    {"position fen <fen> [moves m1 m2 ...]",   "Set arbitrary FEN, optionally apply moves"},
+    {"go [depth n] [movetime ms]",             "Search and print bestmove"},
+    {"go wtime w btime b [winc i] [binc i]",   "Search with time controls"},
+    // interactive
+    {"print board",                            "Display the current board"},
+    {"print moves <sq>",                       "List legal moves from a square (e.g. e2)"},
+    {"move <from><to>[promo]",                 "Apply a move interactively (e.g. e2e4)"},
+    {"status",                                 "Show check / checkmate / stalemate"},
+    {"help",                                   "Show this table"},
+    {"quit",                                   "Exit the engine"},
 };
 
+#define LENGTH_OF_COMMANDS (sizeof(CMD_DESCRIPTIONS) / sizeof(CMD_DESCRIPTIONS[0]))
 
-/**
- * @brief Prints a separator line for the help message.
- *
- * @param cmd_width The width of the command column.
- * @param desc_width The width of the description column.
- */
-void print_separator(int cmd_width, int desc_width) {
+static void print_separator(void) {
     printf("+");
-    for (size_t i = 0; i < cmd_width; i++) printf("-");
+    for (int i = 0; i < CMD_WIDTH; i++) printf("-");
     printf("+");
-    for (size_t i = 0; i < desc_width; i++) printf("-");
+    for (int i = 0; i < DESC_WIDTH; i++) printf("-");
     printf("+\n");
 }
 
-
-/**
- * @brief Executes the 'help' command.
- *
- * This function prints a list of all available commands along with their descriptions.
- * 
- * @param params The command parameters. This parameter is not used in this function.
- */
 void help_command(const CommandParams params) {
-
-    print_separator(CMD_WIDTH, DESC_WIDTH);
-    printf("| Command%*s | Description%*s |\n", CMD_WIDTH - 7, "", DESC_WIDTH - 11, "");
-    print_separator(CMD_WIDTH, DESC_WIDTH);
-
+    (void)params;
+    print_separator();
+    printf("| %-*s | %-*s |\n", CMD_WIDTH - 2, "Command", DESC_WIDTH - 2, "Description");
+    print_separator();
     for (size_t i = 0; i < LENGTH_OF_COMMANDS; i++) {
-        printf("| %-14s | %-32s |\n", CMD_DESCRIPTIONS[i][0], CMD_DESCRIPTIONS[i][1]);
-        print_separator(CMD_WIDTH, DESC_WIDTH);
+        printf("| %-*s | %-*s |\n",
+               CMD_WIDTH - 2, CMD_DESCRIPTIONS[i][0],
+               DESC_WIDTH - 2, CMD_DESCRIPTIONS[i][1]);
+        print_separator();
     }
 }

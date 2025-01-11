@@ -1,3 +1,5 @@
+/* iMate -- Copyright (C) 2024 Martin Newbound */
+
 #include "IMate.h"
 #include "State/GameState.h"
 #include "Commands/Commands.h"
@@ -8,72 +10,99 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-#define INPUT_BUFFER 100
+// compile once at startup
+#define MAX_COMMANDS 16
+static regex_t compiled_regexes[MAX_COMMANDS];
 
-typedef struct {
-    state_t* game_state;
-    bool is_running;
-} EngineState;
-
-
-void remove_whitespace(char* input) {
-    char const* read_ptr = input;
-    char* write_ptr = input;
-    while (*read_ptr) {
-        if (!isspace(*read_ptr))
-            *write_ptr++ = *read_ptr;
-        read_ptr++;
+static void compile_regexes(int count) {
+    for (int i = 0; i < count; i++) {
+        if (regcomp(&compiled_regexes[i], ENGINE_COMMANDS[i].regex, REG_EXTENDED) != 0) {
+            fprintf(stderr, "fatal: failed to compile command regex: %s\n",
+                    ENGINE_COMMANDS[i].regex);
+            exit(EXIT_FAILURE);
+        }
     }
-
-    *write_ptr = '\0';
 }
 
+static void free_compiled_regexes(int count) {
+    for (int i = 0; i < count; i++) regfree(&compiled_regexes[i]);
+}
 
-void engine_loop() {
-    regex_t regex;
-    char user_input[INPUT_BUFFER];
-    regmatch_t matches[MAX_MATCHES];
+// remove whitespace so "print board" becomes "printboard" for regex matching
+static void remove_whitespace(char *s) {
+    char *rd = s, *wr = s;
+    while (*rd) {
+        if (!isspace((unsigned char)*rd)) *wr++ = *rd;
+        rd++;
+    }
+    *wr = '\0';
+}
 
-    printf("Tip: Type \"help\" to see a list of commands \n");
+void engine_loop(void) {
+    // grown by getline() as needed -- long UCI "position ... moves ..." lines
+    // (a full game's move list, resent on every move) must never be truncated
+    char *raw_input = NULL;
+    size_t raw_cap = 0;
 
-    EngineState engine_state = {
-        .game_state = new_state(),
-        .is_running = true
-    };
+    printf("Tip: Type \"help\" to see a list of commands\n");
 
-    while (engine_state.is_running) {
-        fgets(user_input, sizeof(user_input), stdin);
+    state_t *game_state = new_state();
+    bool is_running = true;
+
+    int num_commands = length_of_engine_commands();
+    compile_regexes(num_commands);
+
+    while (is_running) {
+        if (getline(&raw_input, &raw_cap, stdin) < 0) break;
+
+        // raw_input keeps whitespace intact - position/go need it for FEN parsing
+        char *user_input = strdup(raw_input);
         remove_whitespace(user_input);
+        if (user_input[0] == '\0') {
+            free(user_input);
+            continue;
+        }
 
-        for (size_t i = 0; i < length_of_engine_commands(); i++) {
-            regcomp(&regex, ENGINE_COMMANDS[i].regex, REG_EXTENDED);
+        bool matched = false;
+        for (int i = 0; i < num_commands && !matched; i++) {
+            regmatch_t rm[MAX_MATCHES];
+            memset(rm, 0, sizeof(rm));
 
-            if (!regexec(&regex, user_input, 1, matches, 0)) {
-                CommandParams cmd_params = {
-                    .engine_is_running = &engine_state.is_running,
-                    .engine_game_state = engine_state.game_state,
-                    .user_input = user_input,
-                    .matches = matches,
-                };
+            if (regexec(&compiled_regexes[i], user_input, MAX_MATCHES, rm, 0) != 0)
+                continue;
 
-                for (int j = 0; j < MAX_MATCHES && matches[j].rm_so != -1; j++) {
-                    int start = matches[j].rm_so;
-                    int end = matches[j].rm_eo;
-                    cmd_params.matches[j] = strndup(user_input + start, end - start);
-                }
+            CommandParams params = {
+                .raw_input         = raw_input,
+                .user_input        = user_input,
+                .engine_is_running = &is_running,
+                .engine_game_state = game_state
+            };
+            memset(params.matches, 0, sizeof(params.matches));
 
-                ENGINE_COMMANDS[i].func(cmd_params);
-                printf("\n");
-                regfree(&regex);
-
-                for (int j = 0; j < MAX_MATCHES && cmd_params.matches[j]; j++) free(cmd_params.matches[j]);
-                
-                break;
+            for (int j = 0; j < MAX_MATCHES; j++) {
+                if (rm[j].rm_so == -1) continue;
+                int len = (int)(rm[j].rm_eo - rm[j].rm_so);
+                params.matches[j] = strndup(user_input + rm[j].rm_so, len);
             }
 
-            regfree(&regex);
-        }
-    }   // while engine_state.is_running
+            ENGINE_COMMANDS[i].func(params);
+            printf("\n");
 
-    free_state(engine_state.game_state);
+            for (int j = 0; j < MAX_MATCHES; j++) {
+                free(params.matches[j]);
+                params.matches[j] = NULL;
+            }
+
+            matched = true;
+        }
+
+        if (!matched)
+            printf("Unknown command. Type \"help\" for a list of commands.\n");
+
+        free(user_input);
+    }
+
+    free(raw_input);
+    free_compiled_regexes(num_commands);
+    free_state(game_state);
 }
